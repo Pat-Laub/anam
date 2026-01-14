@@ -20,6 +20,19 @@ from anam.utils import (
     plot_interaction_heatmap,
     plot_variable_importance,
 )
+from anam.sparsity import (
+    SparsityConfig,
+    SelectionResult,
+    train_ensemble_main_effects,
+    compute_ensemble_importance,
+    select_main_effects,
+    train_main_effects_model,
+    evaluate_candidate_interactions,
+    select_interactions,
+    run_variable_selection,
+    plot_main_effect_importance,
+    plot_interaction_selection,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -42,6 +55,18 @@ __all__ = [
     "train_anam",
     "TrainingConfig",
     "prepare_data",
+    # Sparsity / Variable Selection
+    "SparsityConfig",
+    "SelectionResult",
+    "train_ensemble_main_effects",
+    "compute_ensemble_importance",
+    "select_main_effects",
+    "train_main_effects_model",
+    "evaluate_candidate_interactions",
+    "select_interactions",
+    "run_variable_selection",
+    "plot_main_effect_importance",
+    "plot_interaction_selection",
     # Utilities
     "generate_synthetic_data",
     "build_feature_configs",
