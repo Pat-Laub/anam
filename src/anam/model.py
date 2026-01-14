@@ -185,6 +185,7 @@ class ANAM(nn.Module):
     def forward(
         self,
         x: dict[str, Tensor],
+        offset: Tensor = None,
         return_components: bool = False,
     ):
         """
@@ -192,6 +193,10 @@ class ANAM(nn.Module):
 
         Args:
             x: Dict mapping feature name to tensor [batch_size] or [batch_size, 1]
+            offset: Optional offset term [batch_size] or [batch_size, 1] to add to the
+                linear predictor before applying the link function. For Poisson regression
+                with exposure, pass log(exposure) as offset. This implements:
+                    g(μ) = bias + Σ s_i(X_i) + Σ h_ij(X_i, X_j) + offset
             return_components: If True, also return per-feature and per-interaction
                                contributions as dictionaries.
 
@@ -252,6 +257,12 @@ class ANAM(nn.Module):
         # Sum all contributions
         combined = torch.stack(contributions, dim=-1).sum(dim=-1)
         combined = combined + self.bias
+
+        # Add offset if provided (e.g., log(exposure) for Poisson regression)
+        if offset is not None:
+            if offset.dim() == 1:
+                offset = offset.unsqueeze(-1)
+            combined = combined + offset
 
         # Apply link function
         if self.link == "exp":

@@ -117,6 +117,7 @@ def train_step(
     config: TrainingConfig,
     feature_bounds: dict[str, tuple[float, float]],
     device: torch.device,
+    batch_offset: Tensor = None,
 ) -> float:
     """
     Perform one training step.
@@ -130,6 +131,7 @@ def train_step(
         config: Training configuration
         feature_bounds: Feature bounds for smoothness
         device: Torch device
+        batch_offset: Optional offset term for the batch (e.g., log(exposure))
 
     Returns:
         Loss value for this step
@@ -142,9 +144,9 @@ def train_step(
 
     if need_mc:
         # Single forward pass that also gives us component outputs
-        pred, main_outputs, int_outputs = model(batch_x, return_components=True)
+        pred, main_outputs, int_outputs = model(batch_x, offset=batch_offset, return_components=True)
     else:
-        pred = model(batch_x)
+        pred = model(batch_x, offset=batch_offset)
         main_outputs = None
         int_outputs = None
 
@@ -183,6 +185,7 @@ def evaluate(
     data_x: dict[str, Tensor],
     data_y: Tensor,
     loss_fn: Callable,
+    offset: Tensor = None,
 ) -> float:
     """
     Evaluate model on data.
@@ -192,13 +195,14 @@ def evaluate(
         data_x: Input dict
         data_y: Targets
         loss_fn: Loss function
+        offset: Optional offset term (e.g., log(exposure))
 
     Returns:
         Loss value
     """
     model.eval()
     with torch.no_grad():
-        pred = model(data_x)
+        pred = model(data_x, offset=offset)
         loss = loss_fn(data_y, pred)
     return loss.item()
 
@@ -209,6 +213,8 @@ def train_anam(
     train_y: Tensor,
     val_x: dict[str, Tensor] = None,
     val_y: Tensor = None,
+    train_offset: Tensor = None,
+    val_offset: Tensor = None,
     config: TrainingConfig = None,
     loss_fn: Callable = None,
     device: torch.device = None,
@@ -222,6 +228,8 @@ def train_anam(
         train_y: Training targets
         val_x: Validation inputs dict (optional)
         val_y: Validation targets (optional)
+        train_offset: Optional offset for training data (e.g., log(exposure) for Poisson)
+        val_offset: Optional offset for validation data
         config: Training configuration
         loss_fn: Loss function (defaults to gamma_nll)
         device: Torch device
@@ -239,9 +247,13 @@ def train_anam(
     # Move data to device
     train_x = {k: v.to(device) for k, v in train_x.items()}
     train_y = train_y.to(device)
+    if train_offset is not None:
+        train_offset = train_offset.to(device)
     if val_x is not None:
         val_x = {k: v.to(device) for k, v in val_x.items()}
         val_y = val_y.to(device)
+        if val_offset is not None:
+            val_offset = val_offset.to(device)
 
     # Get feature bounds for smoothness penalty
     feature_bounds = {}
@@ -276,11 +288,12 @@ def train_anam(
             # Create batch
             batch_x = {k: v[batch_idx] for k, v in train_x.items()}
             batch_y = train_y[batch_idx]
+            batch_offset = train_offset[batch_idx] if train_offset is not None else None
 
             # Training step
             loss = train_step(
                 model, batch_x, batch_y, optimizer, loss_fn,
-                config, feature_bounds, device
+                config, feature_bounds, device, batch_offset
             )
             epoch_loss += loss
             n_batches += 1
@@ -290,7 +303,7 @@ def train_anam(
 
         # Validation
         if val_x is not None:
-            val_loss = evaluate(model, val_x, val_y, loss_fn)
+            val_loss = evaluate(model, val_x, val_y, loss_fn, val_offset)
             history['val_loss'].append(val_loss)
 
             # Early stopping check
@@ -314,7 +327,9 @@ def prepare_data(
     feature_names: list[str],
     target: str,
     categorical_features: list[str] = None,
-) -> tuple[dict[str, Tensor], Tensor]:
+    offset: str = None,
+    log_offset: bool = True,
+) -> tuple[dict[str, Tensor], Tensor] | tuple[dict[str, Tensor], Tensor, Tensor]:
     """
     Prepare data for ANAM training.
 
@@ -323,9 +338,16 @@ def prepare_data(
         feature_names: List of feature column names
         target: Target column name
         categorical_features: List of categorical feature names
+        offset: Column name for offset/exposure term (optional). If provided,
+            returns a third tensor with the offset values.
+        log_offset: If True (default), return log(offset). Set to False if the
+            offset column is already log-transformed.
 
     Returns:
-        Tuple of (features dict, targets tensor)
+        If offset is None:
+            Tuple of (features dict, targets tensor)
+        If offset is provided:
+            Tuple of (features dict, targets tensor, offset tensor)
     """
     categorical_features = categorical_features or []
 
@@ -338,5 +360,12 @@ def prepare_data(
             x[name] = torch.tensor(values, dtype=torch.float32)
 
     y = torch.tensor(df[target].values, dtype=torch.float32).unsqueeze(-1)
+
+    if offset is not None:
+        offset_values = df[offset].values
+        offset_tensor = torch.tensor(offset_values, dtype=torch.float32)
+        if log_offset:
+            offset_tensor = torch.log(offset_tensor)
+        return x, y, offset_tensor
 
     return x, y
