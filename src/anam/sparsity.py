@@ -49,7 +49,7 @@ class SparsityConfig:
     ensemble_num_layers: int = 2
     ensemble_num_neurons: int = 20
     baseline_epochs: int = 5000
-    baseline_patience: int = 20
+    baseline_patience: int = 50
     interaction_epochs: int = 500
     interaction_patience: int = 30
     interaction_num_layers: int = 2
