@@ -304,8 +304,10 @@ def generate_synthetic_data(
     if random_state is not None:
         np.random.seed(random_state)
 
-    # Generate features
-    X = np.random.uniform(-1, 1, (n_samples, 10))
+    # Generate features (one column at a time to match legacy random order)
+    X = np.column_stack([
+        np.random.uniform(-1, 1, n_samples) for _ in range(10)
+    ])
 
     # Main effects
     f1 = np.abs(X[:, 0]) * np.sin(8 * X[:, 0])
