@@ -182,6 +182,40 @@ class ANAMModule(nn.Module):
                 dropout=dropout,
             )
 
+    def _eval_main_subnet(self, name: str, feat: Tensor) -> Tensor:
+        """Evaluate a single main-effect subnet, dispatching on its type.
+
+        Centralises the ``MonotonicSubnet``/``EmbeddingSubnet``/``Subnet``
+        dispatch (and the ``[batch] -> [batch, 1]`` unsqueeze for MLP subnets)
+        so :meth:`forward` and :meth:`get_main_outputs` share one code path.
+        """
+        subnet = self.main_subnets[name]
+        if isinstance(subnet, MonotonicSubnet):
+            return subnet({name: feat})
+        if isinstance(subnet, EmbeddingSubnet):
+            return subnet(feat)
+        if feat.dim() == 1:
+            feat = feat.unsqueeze(-1)
+        return subnet(feat)
+
+    def _eval_interaction_subnet(
+        self, var1: str, var2: str, x: dict[str, Tensor]
+    ) -> Tensor:
+        """Evaluate a single interaction subnet, dispatching on its type.
+
+        Shared by :meth:`forward` and :meth:`get_interaction_outputs`.
+        """
+        subnet = self.interaction_subnets[f"{var1}_{var2}"]
+        if isinstance(subnet, MonotonicSubnet):
+            return subnet({var1: x[var1], var2: x[var2]})
+        feat1 = x[var1]
+        feat2 = x[var2]
+        if feat1.dim() == 1:
+            feat1 = feat1.unsqueeze(-1)
+        if feat2.dim() == 1:
+            feat2 = feat2.unsqueeze(-1)
+        return subnet(torch.cat([feat1, feat2], dim=-1))
+
     def forward(
         self,
         x: dict[str, Tensor],
@@ -215,18 +249,7 @@ class ANAMModule(nn.Module):
 
         # ----- Main effects -----
         for name in self.feature_names:
-            subnet = self.main_subnets[name]
-            feat = x[name]
-
-            if isinstance(subnet, MonotonicSubnet):
-                out = subnet({name: feat})
-            elif isinstance(subnet, EmbeddingSubnet):
-                out = subnet(feat)
-            else:
-                if feat.dim() == 1:
-                    feat = feat.unsqueeze(-1)
-                out = subnet(feat)
-
+            out = self._eval_main_subnet(name, x[name])
             contributions.append(out)
 
             if return_components:
@@ -234,21 +257,7 @@ class ANAMModule(nn.Module):
 
         # ----- Interaction effects -----
         for var1, var2 in self.interactions:
-            key = f"{var1}_{var2}"
-            subnet = self.interaction_subnets[key]
-
-            if isinstance(subnet, MonotonicSubnet):
-                out = subnet({var1: x[var1], var2: x[var2]})
-            else:
-                feat1 = x[var1]
-                feat2 = x[var2]
-                if feat1.dim() == 1:
-                    feat1 = feat1.unsqueeze(-1)
-                if feat2.dim() == 1:
-                    feat2 = feat2.unsqueeze(-1)
-                combined = torch.cat([feat1, feat2], dim=-1)
-                out = subnet(combined)
-
+            out = self._eval_interaction_subnet(var1, var2, x)
             contributions.append(out)
 
             if return_components:
@@ -288,19 +297,7 @@ class ANAMModule(nn.Module):
         """
         outputs = {}
         for name in self.feature_names:
-            subnet = self.main_subnets[name]
-            feat = x[name]
-
-            if isinstance(subnet, MonotonicSubnet):
-                out = subnet({name: feat})
-            elif isinstance(subnet, EmbeddingSubnet):
-                out = subnet(feat)
-            else:
-                if feat.dim() == 1:
-                    feat = feat.unsqueeze(-1)
-                out = subnet(feat)
-
-            outputs[name] = out
+            outputs[name] = self._eval_main_subnet(name, x[name])
 
         return outputs
 
@@ -316,22 +313,7 @@ class ANAMModule(nn.Module):
         """
         outputs = {}
         for var1, var2 in self.interactions:
-            key = f"{var1}_{var2}"
-            subnet = self.interaction_subnets[key]
-
-            if isinstance(subnet, MonotonicSubnet):
-                out = subnet({var1: x[var1], var2: x[var2]})
-            else:
-                feat1 = x[var1]
-                feat2 = x[var2]
-                if feat1.dim() == 1:
-                    feat1 = feat1.unsqueeze(-1)
-                if feat2.dim() == 1:
-                    feat2 = feat2.unsqueeze(-1)
-                combined = torch.cat([feat1, feat2], dim=-1)
-                out = subnet(combined)
-
-            outputs[(var1, var2)] = out
+            outputs[(var1, var2)] = self._eval_interaction_subnet(var1, var2, x)
 
         return outputs
 

@@ -154,9 +154,13 @@ class ANAM:
             if self.features == "all":
                 return [c for c in all_cols if c not in exclude]
             if self.features == "auto":
-                raise NotImplementedError(
-                    "features='auto' selection is implemented in Phase 4; for "
-                    "now pass features='all' or an explicit list."
+                # Unreachable on the normal path: fit() resolves "auto" through
+                # its selection pipeline (rank_main_effects -> choose) and never
+                # calls _build/_resolve_feature_columns for it. Only reachable by
+                # driving the private build path directly.
+                raise RuntimeError(
+                    "features='auto' is resolved by fit(); call fit(...) instead "
+                    "of building the model directly."
                 )
             raise ValueError(
                 f"Unknown features={self.features!r}; use 'auto', 'all', or a list."
@@ -312,9 +316,13 @@ class ANAM:
             if self.interactions == "all":
                 return list(combinations(feature_cols, 2))
             if self.interactions == "auto":
-                raise NotImplementedError(
-                    "interactions='auto' selection is implemented in Phase 4; "
-                    "for now pass interactions=[], 'all', or an explicit list."
+                # Unreachable on the normal path: fit() resolves "auto" through
+                # its selection pipeline (rank_interactions -> choose) and never
+                # calls _build/_resolve_interactions for it. Only reachable by
+                # driving the private build path directly.
+                raise RuntimeError(
+                    "interactions='auto' is resolved by fit(); call fit(...) "
+                    "instead of building the model directly."
                 )
             raise ValueError(
                 f"Unknown interactions={self.interactions!r}; use 'auto', 'all', "
