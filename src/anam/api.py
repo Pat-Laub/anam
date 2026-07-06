@@ -952,10 +952,6 @@ class ANAM:
             ax2.set_title("No candidate interactions")
 
         fig.tight_layout()
-        # Detach from pyplot so notebook/Quarto inline backends don't auto-show
-        # this figure *in addition* to the returned object (which would render
-        # it twice). savefig() and the returned handle still work after close.
-        plt.close(fig)
         return fig
 
     def fit(
@@ -1377,9 +1373,6 @@ class ANAM:
         for ax in axes[n_terms:]:
             ax.set_visible(False)
         fig.tight_layout()
-        # Detach from pyplot so the inline backend doesn't render this figure a
-        # second time on top of the returned object (see plot_selection).
-        plt.close(fig)
         return fig
 
     def importance(self):
