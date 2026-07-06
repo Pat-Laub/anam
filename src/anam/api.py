@@ -119,6 +119,7 @@ class ANAM:
         self.loss_fn_ = None
         self.history_: dict | None = None
         self.term_importances_ = None
+        self.deciles_: dict[str, np.ndarray] | None = None
 
         # Selection state (populated by rank_*/choose; trailing _ = learned).
         self.main_importance_ = None
@@ -1097,6 +1098,15 @@ class ANAM:
         # training data) so importance()/plot_importance() need no recomputation.
         importances = self.module_.get_variable_importance(train_x)
         self.term_importances_ = pd.Series(importances).sort_values(ascending=False)
+
+        # Cache deciles of the training data for plot_effect()'s data-density
+        # ticks (mirrors scikit-learn's PartialDependenceDisplay decile markers).
+        self.deciles_ = {
+            col: np.percentile(
+                np.asarray(X_train[col]), np.arange(10, 100, 10)
+            )
+            for col in self.continuous_features_
+        }
         return self
 
     def predict(self, X) -> np.ndarray:
@@ -1229,13 +1239,50 @@ class ANAM:
             values = values.T
         return axis_a, axis_b, values
 
-    def plot_effect(self, name: str, other: str | None = None, ax=None):
+    def _add_decile_ticks(self, ax, name: str, other: str | None = None):
+        """Draw data-density decile ticks on ``ax``, mirroring sklearn's PDP."""
+        if self.deciles_ is None:
+            return
+        if other is None:
+            # Main effect: ticks on the x-axis (continuous features only).
+            if name not in self.deciles_:
+                return
+            deciles = self.deciles_[name]
+            # Use the axis transform so y=0 is the bottom spine (not the padded
+            # data limit); the "|" marker is clipped to the axes, so only the
+            # upper half shows, touching the spine.
+            ax.plot(deciles, np.zeros_like(deciles), "|",
+                    transform=ax.get_xaxis_transform(),
+                    color="black", markeredgewidth=1, markersize=8)
+        else:
+            # Interaction: ticks on both axes (continuous features only).
+            for feat, is_x in [(name, True), (other, False)]:
+                if feat not in self.deciles_:
+                    continue
+                deciles = self.deciles_[feat]
+                if is_x:
+                    ax.plot(deciles, np.zeros_like(deciles), "|",
+                            transform=ax.get_xaxis_transform(),
+                            color="black", markeredgewidth=1, markersize=8)
+                else:
+                    ax.plot(np.zeros_like(deciles), deciles, "_",
+                            transform=ax.get_yaxis_transform(),
+                            color="black", markeredgewidth=1, markersize=8)
+
+    def plot_effect(self, name: str, other: str | None = None, ax=None,
+                    show_data_ticks: bool = True):
         """
         Plot a fitted term in original units.
 
         Continuous main effect → line; categorical main effect → bar chart with
         real category labels; interaction → heatmap. Creates an axis when
         ``ax is None``. Returns the axis.
+
+        When ``show_data_ticks`` is True and the model was fitted with cached
+        deciles (``self.deciles_``), small black tick marks are drawn at the
+        10th–90th percentiles of the training data along each continuous axis,
+        mirroring scikit-learn's ``PartialDependenceDisplay`` so the viewer can
+        see where data is dense vs. sparse.
         """
         if other is None:
             if name in self.categorical_features_:
@@ -1251,6 +1298,8 @@ class ANAM:
             ax.set_xlabel(name)
             ax.set_ylabel("Partial effect")
             ax.set_title(f"Effect of {name}")
+            if show_data_ticks:
+                self._add_decile_ticks(ax, name)
             return ax
 
         # Interaction heatmap.
@@ -1277,9 +1326,12 @@ class ANAM:
         ax.set_xlabel(name)
         ax.set_ylabel(other)
         ax.set_title(f"Interaction: {name} x {other}")
+        if show_data_ticks:
+            self._add_decile_ticks(ax, name, other)
         return ax
 
-    def plot_effects(self, features=None, ncols: int = 3, figsize=None):
+    def plot_effects(self, features=None, ncols: int = 3, figsize=None,
+                     show_data_ticks: bool = True):
         """
         Plot a grid of fitted terms in original units.
 
@@ -1313,7 +1365,7 @@ class ANAM:
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
         axes = np.atleast_1d(axes).ravel()
         for ax, (a, b) in zip(axes, terms):
-            self.plot_effect(a, b, ax=ax)
+            self.plot_effect(a, b, ax=ax, show_data_ticks=show_data_ticks)
         for ax in axes[n_terms:]:
             ax.set_visible(False)
         fig.tight_layout()
@@ -1407,6 +1459,7 @@ class ANAM:
             "state_dict": self.module_.state_dict(),
             "term_importances_": self.term_importances_,
             "history_": self.history_,
+            "deciles_": self.deciles_,
             # Selection diagnostics so plot_selection() works on a reloaded model
             # (the common path when a lecture/notebook caches the fitted model).
             "main_importance_": self.main_importance_,
@@ -1469,6 +1522,7 @@ class ANAM:
         model.link_ = checkpoint["link_"]
         model.term_importances_ = checkpoint["term_importances_"]
         model.history_ = checkpoint["history_"]
+        model.deciles_ = checkpoint.get("deciles_")
         # Selection diagnostics (absent in pre-0.2.x checkpoints — default safely).
         model.main_importance_ = checkpoint.get("main_importance_")
         model.interaction_scores_ = checkpoint.get("interaction_scores_")
