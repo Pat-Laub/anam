@@ -37,11 +37,18 @@ class RunningMeanCenter(nn.Module):
         """
         if self.training:
             batch_mean = x.mean(dim=0)
-            # Update running mean with exponential moving average
-            self.running_mean = (
-                (1 - self.momentum) * self.running_mean + self.momentum * batch_mean
-            )
-            self.num_batches_tracked += 1
+            # Update running mean with exponential moving average. Detach so the
+            # buffer never becomes part of the autograd graph: without this, the
+            # update chains running_mean_n -> running_mean_{n-1} -> ... across
+            # batches, retaining an ever-growing graph (a memory leak) and
+            # leaving a buffer that erroneously carries grad. Centering still
+            # backpropagates through the returned ``x - batch_mean``.
+            with torch.no_grad():
+                self.running_mean = (
+                    (1 - self.momentum) * self.running_mean
+                    + self.momentum * batch_mean
+                )
+                self.num_batches_tracked += 1
             return x - batch_mean
         else:
             return x - self.running_mean
