@@ -1,5 +1,5 @@
 """
-User-facing ANAM wrapper (the v2 API).
+User-facing ANAM wrapper.
 
 This module defines the ``ANAM`` class that most users interact with: a thin,
 ``drn``-style wrapper around the raw :class:`~anam.model.ANAMModule` engine. The
@@ -209,8 +209,8 @@ class ANAM:
         transforms and the derived ``feature_configs_`` for exactly the given
         columns. Does NOT resolve interactions or instantiate the module — those
         are the caller's responsibility, so this helper is reusable both for the
-        Phase 1–3 direct-build path and the candidate-pool fit done during
-        screening (:meth:`_screen_main_effects`).
+        direct-build path and the candidate-pool fit done during screening
+        (:meth:`_screen_main_effects`).
         """
         # Link / loss from the distribution (with optional link override).
         loss_fn, default_link = resolve_distribution(self.distribution)
