@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from itertools import combinations
 from typing import Callable
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import Tensor
@@ -21,6 +22,64 @@ from torch import Tensor
 from anam.losses import gamma_nll
 from anam.model import ANAM
 from anam.optimizer import TrainingConfig, train_anam
+
+
+def _find_elbow(scores) -> int:
+    """
+    Find the elbow ("kneedle") in a descending-sorted score array.
+
+    Returns the number of leading items to keep. The elbow is the point of
+    maximum perpendicular distance from the chord joining the first and last
+    score — the mechanical version of eyeballing the kink in a scree plot.
+    For a high-plateau-then-cliff profile that point sits at the *bottom* of
+    the cliff (the first low value), so the count kept is the plateau before
+    it: the elbow index itself.
+
+    Guard rails:
+    - Fewer than 3 scores → keep all of them (the elbow is ill-defined).
+    - Near-collinear / flat profile (no real kink) → keep all.
+    - Ties in the distance → keep more rather than fewer.
+
+    Args:
+        scores: 1-D array-like of scores, assumed sorted descending.
+
+    Returns:
+        Number of leading items to keep (at least 1).
+    """
+    scores = np.asarray(scores, dtype=float)
+    n = len(scores)
+    if n < 3:
+        return n
+
+    # Coordinates of each point: x = index, y = score.
+    x = np.arange(n, dtype=float)
+    y = scores
+
+    x0, y0 = x[0], y[0]
+    x1, y1 = x[-1], y[-1]
+
+    # Perpendicular distance of each point from the chord (x0, y0)-(x1, y1).
+    dx = x1 - x0
+    dy = y1 - y0
+    denom = np.hypot(dx, dy)
+    if denom == 0:
+        return n
+
+    distances = np.abs(dy * (x - x0) - dx * (y - y0)) / denom
+
+    # Near-collinear (flat or perfectly linear) profile: no meaningful elbow.
+    score_range = float(y.max() - y.min())
+    if distances.max() <= 1e-9 * max(score_range, 1.0):
+        return n
+
+    # argmax on the reversed array picks the *last* maximum on ties (keep more),
+    # then map the index back to the original orientation.
+    rev_idx = int(np.argmax(distances[::-1]))
+    elbow_idx = n - 1 - rev_idx
+
+    # The plateau kept is everything strictly above the cliff bottom, i.e. the
+    # elbow index itself; guarantee at least one item survives.
+    return max(elbow_idx, 1)
 
 
 @dataclass
@@ -86,6 +145,9 @@ def train_ensemble_main_effects(
     loss_fn: Callable = None,
     config: SparsityConfig = None,
     device: torch.device = None,
+    train_offset: Tensor = None,
+    val_offset: Tensor = None,
+    base_seed: int = 0,
 ) -> list[dict[str, float]]:
     """
     Stage 1: Train an ensemble of NAMs with main effects only.
@@ -102,6 +164,9 @@ def train_ensemble_main_effects(
         loss_fn: Loss function (defaults to gamma_nll).
         config: SparsityConfig for training parameters.
         device: Torch device.
+        base_seed: Starting seed for the ensemble; model ``i`` uses
+            ``base_seed + i``. The default of ``0`` preserves the historical
+            fixed seeds ``range(num_ensemble)`` so existing runs are unchanged.
 
     Returns:
         List of importance dicts, one per ensemble model.
@@ -118,7 +183,8 @@ def train_ensemble_main_effects(
               f"{len(feature_names)} main effects...")
         print("-" * 60)
 
-    for seed in range(config.num_ensemble):
+    for i in range(config.num_ensemble):
+        seed = base_seed + i
         torch.manual_seed(seed)
         np.random.seed(seed)
 
@@ -144,6 +210,7 @@ def train_ensemble_main_effects(
         )
 
         train_anam(model, train_x, train_y, val_x, val_y,
+                   train_offset=train_offset, val_offset=val_offset,
                    config=train_config, loss_fn=loss_fn, device=device)
 
         # Get variable importance
@@ -230,6 +297,8 @@ def train_main_effects_model(
     config: SparsityConfig = None,
     device: torch.device = None,
     seed: int = 42,
+    train_offset: Tensor = None,
+    val_offset: Tensor = None,
 ) -> tuple[ANAM, float]:
     """
     Train a main effects only model (baseline for Stage 2).
@@ -274,12 +343,13 @@ def train_main_effects_model(
     )
 
     train_anam(model, train_x, train_y, val_x, val_y,
+               train_offset=train_offset, val_offset=val_offset,
                config=train_config, loss_fn=loss_fn, device=device)
 
     # Compute validation loss
     model.eval()
     with torch.no_grad():
-        val_pred = model(val_x)
+        val_pred = model(val_x, offset=val_offset)
         val_loss = loss_fn(val_y, val_pred).item()
 
     return model, val_loss
@@ -297,6 +367,8 @@ def evaluate_candidate_interactions(
     config: SparsityConfig = None,
     device: torch.device = None,
     baseline_val_loss: float = None,
+    train_offset: Tensor = None,
+    val_offset: Tensor = None,
 ) -> dict[tuple[str, str], float]:
     """
     Stage 2: Evaluate candidate interactions by adding them one at a time.
@@ -379,12 +451,13 @@ def evaluate_candidate_interactions(
         )
 
         train_anam(model, train_x, train_y, val_x, val_y,
+                   train_offset=train_offset, val_offset=val_offset,
                    config=train_config, loss_fn=loss_fn, device=device)
 
         # Evaluate
         model.eval()
         with torch.no_grad():
-            val_pred = model(val_x)
+            val_pred = model(val_x, offset=val_offset)
             val_loss = loss_fn(val_y, val_pred).item()
 
         interaction_losses[(var1, var2)] = val_loss
@@ -453,6 +526,8 @@ def run_variable_selection(
     k_interaction: int = None,
     main_threshold: float = None,
     interaction_threshold: float = 0.0,
+    train_offset: Tensor = None,
+    val_offset: Tensor = None,
 ) -> SelectionResult:
     """
     Run the complete variable selection process (Stages 1 and 2).
@@ -492,7 +567,8 @@ def run_variable_selection(
 
     ensemble_variances = train_ensemble_main_effects(
         feature_configs, train_x, train_y, val_x, val_y,
-        loss_fn=loss_fn, config=config, device=device
+        loss_fn=loss_fn, config=config, device=device,
+        train_offset=train_offset, val_offset=val_offset,
     )
 
     result.main_importance = compute_ensemble_importance(ensemble_variances)
@@ -535,7 +611,8 @@ def run_variable_selection(
     baseline_model, baseline_val_loss = train_main_effects_model(
         selected_configs, selected_train_x, train_y,
         selected_val_x, val_y,
-        loss_fn=loss_fn, config=config, device=device
+        loss_fn=loss_fn, config=config, device=device,
+        train_offset=train_offset, val_offset=val_offset,
     )
     result.baseline_val_loss = baseline_val_loss
 
@@ -550,7 +627,8 @@ def run_variable_selection(
         baseline_model, selected_configs, candidate_interactions,
         selected_train_x, train_y, selected_val_x, val_y,
         loss_fn=loss_fn, config=config, device=device,
-        baseline_val_loss=baseline_val_loss
+        baseline_val_loss=baseline_val_loss,
+        train_offset=train_offset, val_offset=val_offset,
     )
 
     result.selected_interactions = select_interactions(
@@ -573,6 +651,7 @@ def plot_main_effect_importance(
     ax=None,
     title: str = "Main Effect Importance (Ensemble Variance)",
     top_k: int = None,
+    cutoff: int = None,
 ):
     """
     Plot main effect importance as a bar chart.
@@ -582,11 +661,11 @@ def plot_main_effect_importance(
         ax: Matplotlib axis (creates new figure if None).
         title: Plot title.
         top_k: Only show top k variables.
+        cutoff: If given, draw a dashed vertical marker after this many leading
+            (highest-importance) bars to show the selection boundary.
     """
-    import matplotlib.pyplot as plt
-
     if ax is None:
-        _, ax = plt.subplots(figsize=(10, 6))
+        _, ax = plt.subplots(figsize=(12, 4))
 
     # Sort by importance
     sorted_items = sorted(importance.items(), key=lambda x: x[1], reverse=True)
@@ -602,6 +681,11 @@ def plot_main_effect_importance(
     ax.set_title(title)
     ax.tick_params(axis='x', rotation=45)
 
+    if cutoff is not None and 0 < cutoff <= len(names):
+        ax.axvline(cutoff - 0.5, color="green", linestyle="--",
+                   label=f"Selected ({cutoff})")
+        ax.legend()
+
     return ax
 
 
@@ -611,6 +695,7 @@ def plot_interaction_selection(
     ax=None,
     title: str = "Interaction Selection",
     top_k: int = 15,
+    cutoff: int = None,
 ):
     """
     Plot interaction validation losses.
@@ -621,27 +706,35 @@ def plot_interaction_selection(
         ax: Matplotlib axis (creates new figure if None).
         title: Plot title.
         top_k: Number of interactions to show.
+        cutoff: If given, draw a dashed vertical marker after this many leading
+            (lowest-loss) bars to show how many interactions were selected.
     """
-    import matplotlib.pyplot as plt
-
     if ax is None:
-        _, ax = plt.subplots(figsize=(12, 6))
+        _, ax = plt.subplots(figsize=(14, 4))
 
-    # Sort by loss (ascending = best first)
+    # Sort by loss (ascending = best first) and plot each pair's *improvement*
+    # over the mains-only baseline. Absolute losses differ by ~1e-4 on a ~0.4
+    # scale, so bars-from-zero look identical; the improvement is the quantity
+    # selection actually ranks on, and putting the baseline at 0 makes the
+    # (small) differences and any pairs that hurt (negative bars) legible.
     sorted_items = sorted(interaction_losses.items(), key=lambda x: x[1])
     if top_k:
         sorted_items = sorted_items[:top_k]
 
     names = [f"{v1} x {v2}" for (v1, v2), _ in sorted_items]
-    values = [loss for _, loss in sorted_items]
+    improvements = [baseline_val_loss - loss for _, loss in sorted_items]
 
-    ax.bar(names, values)
-    ax.axhline(baseline_val_loss, color='red', linestyle='--',
-               label=f'Main effects only ({baseline_val_loss:.4f})')
+    ax.bar(names, improvements)
+    ax.axhline(0.0, color="red", linestyle="--", label="Main effects only")
     ax.set_xlabel("Interaction")
-    ax.set_ylabel("Validation Loss")
+    ax.set_ylabel("Validation-loss improvement over baseline")
     ax.set_title(title)
-    ax.legend()
     ax.tick_params(axis='x', rotation=45)
+
+    if cutoff is not None and 0 < cutoff <= len(names):
+        ax.axvline(cutoff - 0.5, color="green", linestyle="--",
+                   label=f"Selected ({cutoff})")
+
+    ax.legend()
 
     return ax

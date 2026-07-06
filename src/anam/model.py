@@ -13,9 +13,9 @@ from anam.subnet import Subnet, EmbeddingSubnet
 from anam.lattice import MonotonicSubnet
 
 
-class ANAM(nn.Module):
+class ANAMModule(nn.Module):
     """
-    Actuarial Neural Additive Model.
+    Actuarial Neural Additive Model (the raw ``nn.Module`` engine).
 
     An interpretable deep learning model that learns additive shape functions
     for each feature and pairwise interaction. Supports:
@@ -432,3 +432,9 @@ class ANAM(nn.Module):
                 importance[f"{var1}_{var2}"] = out.var().item()
 
         return importance
+
+
+# Backward-compatibility alias: the raw engine used to be exported as ``ANAM``.
+# Old code importing ``from anam.model import ANAM`` keeps working. The
+# package-level ``anam.ANAM`` name is the user-facing wrapper (see api.py).
+ANAM = ANAMModule

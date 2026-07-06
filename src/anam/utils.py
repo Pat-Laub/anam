@@ -7,14 +7,13 @@ Includes:
 - Visualization utilities
 """
 
-import torch
-from torch import Tensor
+import matplotlib.pyplot as plt
 import numpy as np
-from typing import Union, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import pandas as pd
-    import matplotlib.pyplot as plt
+import pandas as pd
+import torch
+from sklearn.model_selection import train_test_split
+from torch import Tensor
+from typing import Union
 
 
 def remove_outliers_iqr(
@@ -133,8 +132,6 @@ def train_val_test_split(
     Returns:
         Tuple of (train_df, val_df, test_df)
     """
-    from sklearn.model_selection import train_test_split
-
     # First split: separate test set
     main, test = train_test_split(df, test_size=test_size, random_state=random_state)
 
@@ -166,8 +163,6 @@ def plot_shape_function(
     Returns:
         Matplotlib axes
     """
-    import matplotlib.pyplot as plt
-
     if ax is None:
         fig, ax = plt.subplots(figsize=(6, 4))
 
@@ -212,8 +207,6 @@ def plot_interaction_heatmap(
     Returns:
         Matplotlib axes
     """
-    import matplotlib.pyplot as plt
-
     if ax is None:
         fig, ax = plt.subplots(figsize=(6, 5))
 
@@ -253,8 +246,6 @@ def plot_variable_importance(
     Returns:
         Matplotlib axes
     """
-    import matplotlib.pyplot as plt
-
     if ax is None:
         fig, ax = plt.subplots(figsize=(8, 5))
 
@@ -299,8 +290,6 @@ def generate_synthetic_data(
     Returns:
         DataFrame with X1-X10 and Y columns
     """
-    import pandas as pd
-
     if random_state is not None:
         np.random.seed(random_state)
 

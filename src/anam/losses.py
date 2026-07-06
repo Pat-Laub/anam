@@ -133,3 +133,54 @@ def poisson_nll(y_true: Tensor, y_pred: Tensor, eps: float = 1e-7) -> Tensor:
     y_pred = torch.clamp(y_pred, min=eps)
     loss = torch.mean(y_pred - y_true * torch.log(y_pred))
     return loss
+
+
+def gaussian_nll(y_true: Tensor, y_pred: Tensor) -> Tensor:
+    """
+    Gaussian negative log-likelihood loss (mean squared error).
+
+    For a Gaussian with fixed unit variance, the NLL reduces (up to a
+    constant) to the mean squared error between prediction and truth:
+        loss = mean((y_true - y_pred)^2)
+
+    Args:
+        y_true: Ground truth values
+        y_pred: Predicted mean (identity link)
+
+    Returns:
+        Scalar loss value
+    """
+    return torch.mean((y_true - y_pred) ** 2)
+
+
+# Registry mapping distribution name -> (loss function, link function).
+# The link determines how the linear predictor maps to the response scale:
+# "exp" for the log link (Poisson/Gamma), "identity" for Gaussian.
+DISTRIBUTIONS = {
+    "poisson": (poisson_nll, "exp"),
+    "gamma": (gamma_nll, "exp"),
+    "gaussian": (gaussian_nll, "identity"),
+}
+
+
+def resolve_distribution(name: str) -> tuple:
+    """
+    Resolve a distribution name to its (loss function, link) pair.
+
+    Args:
+        name: Distribution name, one of the keys in ``DISTRIBUTIONS``.
+
+    Returns:
+        Tuple of (loss_fn, link) where link is "exp" or "identity".
+
+    Raises:
+        ValueError: If the name is not a recognised distribution, with a
+            message listing the valid choices.
+    """
+    try:
+        return DISTRIBUTIONS[name]
+    except KeyError:
+        valid = ", ".join(sorted(DISTRIBUTIONS))
+        raise ValueError(
+            f"Unknown distribution {name!r}. Valid choices are: {valid}."
+        ) from None
