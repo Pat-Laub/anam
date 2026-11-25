@@ -139,3 +139,18 @@ class TestConfigErrors:
         )
         with pytest.raises(ValueError, match="expo"):
             model.predict(df[["x"]])
+
+
+class TestMonotoneCategoricalInteraction:
+    def test_explicit_pair_raises(self, df):
+        model = nam(interactions=[("x", "c")], monotone={"x": "increasing"})
+        with pytest.raises(NotImplementedError, match="x.*c"):
+            model.fit(df[["x", "c"]], df["y"], epochs=1, verbose=False)
+
+    def test_ranking_skips_pair(self, df):
+        model = ANAM(monotone={"x": "increasing"}).rank_interactions(
+            df[["x", "z", "c"]], df["y"], n_main=3, ensemble_size=1,
+            ensemble_epochs=1, random_state=0, verbose=False,
+        )
+        pairs = {frozenset(p) for p in model._interaction_losses_}
+        assert pairs == {frozenset("xz"), frozenset("zc")}
