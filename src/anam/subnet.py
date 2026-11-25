@@ -166,6 +166,7 @@ class EmbeddingSubnet(nn.Module):
     def __init__(self, num_categories: int, embedding_dim: int = 1):
         super().__init__()
         self.embedding = nn.Embedding(num_categories, embedding_dim)
+        nn.init.zeros_(self.embedding.weight)
         self.output_center = RunningMeanCenter(embedding_dim)
         self.output_scale = nn.Parameter(torch.ones(1))
 
