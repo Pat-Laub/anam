@@ -21,7 +21,8 @@ from anam.losses import (
 from anam.sparsity import _find_elbow, train_ensemble_main_effects, compute_ensemble_importance
 from anam.sparsity import SparsityConfig
 from anam.utils import build_feature_configs
-from anam.optimizer import prepare_data
+from anam.model import ANAMModule
+from anam.optimizer import TrainingConfig, evaluate, prepare_data, train_anam
 
 
 class TestResolveDistribution:
@@ -112,3 +113,28 @@ class TestOffsetThreading:
         )
         importance = compute_ensemble_importance(variances)
         assert importance["X1"] > importance["X2"]
+
+
+class TestBestWeights:
+    @pytest.mark.parametrize("patience", [3, 1000])
+    def test_best_weights_restored(self, patience):
+        torch.manual_seed(0)
+        x = {"a": torch.linspace(-1, 1, 200)}
+        y = torch.sin(3 * x["a"]).unsqueeze(-1)
+        model = ANAMModule(
+            {"a": {"type": "continuous", "bounds": (-1, 1)}},
+            num_layers=1, num_neurons=8, link="identity",
+        )
+        config = TrainingConfig(
+            epochs=40, batch_size=50, learning_rate=0.01, patience=patience,
+            min_delta=0.0, verbose=False,
+        )
+        cpu = torch.device("cpu")
+        history = train_anam(
+            model, x, y, x, -y, config=config, loss_fn=gaussian_nll, device=cpu
+        )
+
+        val_losses = history["val_loss"]
+        assert (len(val_losses) < 40) == (patience == 3)
+        assert val_losses[-1] > min(val_losses)
+        assert evaluate(model, x, -y, gaussian_nll) == pytest.approx(min(val_losses))
