@@ -59,3 +59,16 @@ class TestInitBias:
             random_state=0, verbose=False,
         )
         assert model.baseline_val_loss_ < 10
+
+
+class TestUnseenCategory:
+    def test_has_zero_effect(self, df):
+        model = nam(interactions=[("x", "c")]).fit(
+            df[["x", "c"]], df["y"], epochs=30, random_state=0, verbose=False
+        )
+        unseen = pd.DataFrame({"x": [0.5, -1.0], "c": ["new", "new"]})
+        components = model.predict_components(unseen)
+        assert (components["c"] == 0).all()
+        assert (components["x_c"] == 0).all()
+        seen = model.predict_components(unseen.assign(c="a"))
+        assert (seen["c"] != 0).all() and (seen["x_c"] != 0).all()
