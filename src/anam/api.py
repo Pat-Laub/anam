@@ -1004,10 +1004,17 @@ class ANAM:
         else:
             X_train, y_train = X, y
 
+        # Each fit starts afresh; only a manual choose() survives a refit.
+        if self.module_ is not None:
+            self._candidate_feature_configs_ = None
+            self._stage1_cache = None
+            self._stage2_cache = None
+
         # Resolve the feature set / interactions, running selection if the
         # constructor asked for "auto" and it has not been resolved yet.
         needs_selection = self.features == "auto" or self.interactions == "auto"
-        if needs_selection and not self._selection_ran:
+        auto_selected = needs_selection and not self._selection_ran
+        if auto_selected:
             if X_val is None:
                 raise ValueError(
                     "'auto' feature/interaction selection needs validation data: "
@@ -1045,27 +1052,19 @@ class ANAM:
                 self.choose(n_main="auto", n_interactions=0)
 
         if self._selection_ran:
-            # Selection fitted preprocessing on the candidate pool; build the
-            # final module on exactly the resolved terms.
-            candidate_cols = list(self._candidate_feature_configs_.keys())
+            # Build the final module on exactly the resolved terms.
+            candidate_cols = self._candidate_columns(X_train, y_train)
             final_features = self._resolve_final_features(candidate_cols)
             final_interactions = self._resolve_final_interactions(final_features)
 
-            self.feature_configs_ = {
-                k: self._candidate_feature_configs_[k] for k in final_features
-            }
-            self.feature_names_ = final_features
-            self.categorical_features_ = [
-                c for c in final_features if c in self.categorical_features_
-            ]
-            self.continuous_features_ = [
-                c for c in final_features if c in self.continuous_features_
-            ]
+            self._fit_preprocessing(X_train, y_train, final_features)
             self.features_ = final_features
             self.interactions_ = final_interactions
             self.module_ = self._make_module()
-        elif self.module_ is None:
-            # Lazy build on first fit (preprocessing fitted on the training slice).
+            # Automatic selections are redone by the next fit.
+            self._selection_ran = not auto_selected
+        else:
+            # Preprocessing is fitted on the training slice.
             self._build(X_train, y_train)
 
         train_x = self._encode(X_train)
