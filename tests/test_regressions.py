@@ -110,3 +110,32 @@ class TestRefit:
             y = pd.Series(rng.poisson(np.exp(X[name])))
             model.fit(X, y, epochs=2, random_state=0, verbose=False)
             assert model.main_importance_.index[0] == name
+
+
+class TestConfigErrors:
+    @pytest.mark.parametrize(
+        "monotone", [{"typo": "increasing"}, {"x": "decreasng"}, {"c": "increasing"}]
+    )
+    def test_bad_monotone(self, df, monotone):
+        with pytest.raises(ValueError, match="monotone"):
+            nam(monotone=monotone).fit(df[["x", "c"]], df["y"], epochs=1, verbose=False)
+
+    def test_bad_monotone_when_ranking(self, df):
+        with pytest.raises(ValueError, match="monotone"):
+            ANAM(monotone={"typo": "increasing"}).rank_main_effects(
+                df[["x", "z"]], df["y"], ensemble_size=1, ensemble_epochs=1,
+                verbose=False,
+            )
+
+    def test_missing_exposure_in_fit(self, df):
+        with pytest.raises(ValueError, match="expoo"):
+            nam(exposure="expoo").fit(
+                df[["x", "expo"]], df["y"], epochs=1, verbose=False
+            )
+
+    def test_missing_exposure_in_predict(self, df):
+        model = nam(exposure="expo").fit(
+            df[["x", "expo"]], df["y"], epochs=1, verbose=False
+        )
+        with pytest.raises(ValueError, match="expo"):
+            model.predict(df[["x"]])
