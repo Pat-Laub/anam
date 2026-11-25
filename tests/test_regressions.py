@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import torch
 
-from anam import ANAM
+from anam import ANAM, SparsityConfig
 
 
 def nam(**kwargs):
@@ -72,3 +72,41 @@ class TestUnseenCategory:
         assert (components["x_c"] == 0).all()
         seen = model.predict_components(unseen.assign(c="a"))
         assert (seen["c"] != 0).all() and (seen["x_c"] != 0).all()
+
+
+class TestRefit:
+    @pytest.mark.parametrize("chosen", [False, True])
+    def test_refit_matches_fresh_fit(self, df, chosen):
+        X, y = df[["x", "z"]], df["y"]
+        kwargs = dict(epochs=3, random_state=0, verbose=False)
+
+        def make(X):
+            model = ANAM() if chosen else nam()
+            if chosen:
+                model.rank_main_effects(
+                    X, y, ensemble_size=1, ensemble_epochs=1, random_state=0,
+                    verbose=False,
+                )
+                model.choose(n_main=2, n_interactions=0)
+            return model
+
+        refit = make(X).fit(X, y, **kwargs).fit(X + 100, y, **kwargs)
+        fresh = make(X + 100).fit(X + 100, y, **kwargs)
+        np.testing.assert_allclose(
+            refit.predict(X + 100), fresh.predict(X + 100), rtol=1e-3
+        )
+
+    def test_auto_selection_reruns(self, monkeypatch):
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(rng.normal(size=(1000, 3)), columns=["x0", "x1", "x2"])
+        monkeypatch.setattr(
+            "anam.api.SparsityConfig",
+            lambda **k: SparsityConfig(
+                **{**k, "num_ensemble": 1, "ensemble_epochs": 100, "batch_size": 100}
+            ),
+        )
+        model = ANAM(interactions=[])
+        for name in ["x0", "x2"]:
+            y = pd.Series(rng.poisson(np.exp(X[name])))
+            model.fit(X, y, epochs=2, random_state=0, verbose=False)
+            assert model.main_importance_.index[0] == name
