@@ -175,3 +175,11 @@ class TestSmoothnessCentering:
         assert torch.equal(center.running_mean, before)
         assert center.training
         assert any(p.grad is not None for p in model.module_.parameters())
+
+
+def test_categorical_effects_start_at_zero(df):
+    model = nam().fit(
+        df[["c"]], df["y"], epochs=1, lr=0.01, random_state=0, verbose=False
+    )
+    _, values = model.effect("c")
+    assert np.abs(values).max() < 0.05
