@@ -229,6 +229,16 @@ class ANAM:
         self.continuous_features_ = continuous
 
         monotone = self.monotone or {}
+        for col, direction in monotone.items():
+            if col not in X.columns:
+                raise ValueError(f"monotone feature {col!r} is not a column of X.")
+            if direction not in ("increasing", "decreasing"):
+                raise ValueError(
+                    f"monotone[{col!r}]={direction!r}; use 'increasing' or "
+                    "'decreasing'."
+                )
+            if col in categorical:
+                raise ValueError(f"monotone feature {col!r} is categorical.")
 
         feature_configs = {}
         for col in feature_cols:
@@ -368,7 +378,11 @@ class ANAM:
         """Resolve the offset tensor from an explicit array or exposure column."""
         if offset is not None:
             arr = np.asarray(offset, dtype=float).ravel()
-        elif self.exposure is not None and self.exposure in X.columns:
+        elif self.exposure is not None:
+            if self.exposure not in X.columns:
+                raise ValueError(
+                    f"exposure column {self.exposure!r} is not a column of X."
+                )
             arr = np.asarray(X[self.exposure].values, dtype=float).ravel()
             if self.link_ == "exp":
                 arr = np.log(arr)
