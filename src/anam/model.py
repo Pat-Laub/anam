@@ -106,6 +106,17 @@ class ANAMModule(nn.Module):
         # Bias term
         self.bias = nn.Parameter(torch.zeros(1))
 
+    def init_bias(self, y: Tensor, offset: Tensor = None):
+        """Set the bias to the intercept-only fit of ``y`` (and the offset)."""
+        if self.link == "exp":
+            exposure = torch.exp(offset).sum() if offset is not None else y.numel()
+            bias = torch.log(y.sum() / exposure)
+        else:
+            bias = y.mean() - (offset.mean() if offset is not None else 0.0)
+        if torch.isfinite(bias):
+            with torch.no_grad():
+                self.bias.fill_(bias.item())
+
     def _build_main_subnet(
         self, name: str, config: dict,
         num_layers: int, num_neurons: int,

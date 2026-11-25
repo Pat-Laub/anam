@@ -100,6 +100,7 @@ class SparsityConfig:
         interaction_num_neurons: Number of neurons for interaction subnets.
         batch_size: Batch size for training.
         learning_rate: Learning rate for training.
+        init_bias: Whether to start each model's bias at the mean response.
         verbose: Whether to print progress messages.
     """
     num_ensemble: int = 10
@@ -115,6 +116,7 @@ class SparsityConfig:
     interaction_num_neurons: int = 40
     batch_size: int = 5000
     learning_rate: float = 0.001
+    init_bias: bool = True
     verbose: bool = True
 
 
@@ -197,6 +199,8 @@ def train_ensemble_main_effects(
             activation="leaky_relu",
             link="exp",
         )
+        if config.init_bias:
+            model.init_bias(train_y, train_offset)
 
         # Train
         train_config = TrainingConfig(
@@ -331,6 +335,8 @@ def train_main_effects_model(
         activation="leaky_relu",
         link="exp",
     )
+    if config.init_bias:
+        model.init_bias(train_y, train_offset)
 
     train_config = TrainingConfig(
         epochs=config.baseline_epochs,

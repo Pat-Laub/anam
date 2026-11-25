@@ -67,6 +67,8 @@ class ANAM:
         num_vertices, num_keypoints: Lattice hyperparameters for monotone terms.
         link: Optional explicit link (``"exp"`` or ``"identity"``) overriding the
             distribution default.
+        init_bias: Start the bias at the mean response (on the link scale) rather
+            than at zero.
     """
 
     def __init__(
@@ -86,6 +88,7 @@ class ANAM:
         num_vertices: int = 10,
         num_keypoints: int = 20,
         link: str | None = None,
+        init_bias: bool = True,
     ):
         # Store everything verbatim (sklearn convention: no work in __init__).
         self.distribution = distribution
@@ -103,6 +106,7 @@ class ANAM:
         self.num_vertices = num_vertices
         self.num_keypoints = num_keypoints
         self.link = link
+        self.init_bias = init_bias
 
         # Fitted state (populated by _build / fit); trailing underscore = learned.
         self.module_: ANAMModule | None = None
@@ -407,6 +411,7 @@ class ANAM:
             ),
             # A moderate rate keeps the many short screening runs converging.
             learning_rate=1e-2,
+            init_bias=self.init_bias,
             verbose=verbose,
         )
         if ensemble_epochs is not None:
@@ -431,6 +436,7 @@ class ANAM:
             cfg.ensemble_num_neurons,
             cfg.learning_rate,
             cfg.batch_size,
+            cfg.init_bias,
             int(base_seed),
             self.distribution,
             self.link_,
@@ -1072,6 +1078,9 @@ class ANAM:
         else:
             val_x = val_y = val_offset = None
 
+        if self.init_bias:
+            self.module_.init_bias(train_y, train_offset)
+
         smooth_features = (
             list(self.continuous_features_) if self.smoothness > 0 else None
         )
@@ -1418,6 +1427,7 @@ class ANAM:
         "num_vertices",
         "num_keypoints",
         "link",
+        "init_bias",
     )
 
     def save(self, path) -> None:
