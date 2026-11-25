@@ -99,8 +99,12 @@ def compute_smoothness_penalties(
         grid = torch.linspace(min_val, max_val, grid_size, device=device)
         h = (max_val - min_val) / (grid_size - 1)
 
-        # Get shape function values
+        # The grid is not data, so it must not update the running mean.
+        center = model.main_subnets[name].output_center
+        was_training = center.training
+        center.eval()
         shape_values = model.get_shape_function(name, grid)
+        center.train(was_training)
 
         # Add smoothness penalty
         total_penalty = total_penalty + smoothness_penalty(shape_values, h, lambda_smooth)
