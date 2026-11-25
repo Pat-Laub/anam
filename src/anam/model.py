@@ -13,6 +13,15 @@ from anam.subnet import Subnet, EmbeddingSubnet
 from anam.lattice import MonotonicSubnet
 
 
+def interaction_supported(config1: dict, config2: dict) -> bool:
+    """Whether a pair is implemented (monotone x categorical pairs are not)."""
+    configs = (config1, config2)
+    return not (
+        any(c.get('monotonicity') is not None for c in configs)
+        and any(c.get('type') == 'categorical' for c in configs)
+    )
+
+
 class ANAMModule(nn.Module):
     """
     Actuarial Neural Additive Model (the raw ``nn.Module`` engine).
@@ -159,6 +168,12 @@ class ANAMModule(nn.Module):
         """Build a subnetwork for an interaction effect."""
         config1 = self.feature_configs[var1]
         config2 = self.feature_configs[var2]
+
+        if not interaction_supported(config1, config2):
+            raise NotImplementedError(
+                f"Interaction ({var1!r}, {var2!r}) pairs a monotone feature with a "
+                "categorical one, which is not implemented."
+            )
 
         # Check if any variable needs monotonicity
         mono1 = config1.get('monotonicity')

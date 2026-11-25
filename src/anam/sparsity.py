@@ -20,7 +20,7 @@ import torch
 from torch import Tensor
 
 from anam.losses import gamma_nll
-from anam.model import ANAM
+from anam.model import ANAM, interaction_supported
 from anam.optimizer import TrainingConfig, train_anam
 
 
@@ -627,7 +627,10 @@ def run_variable_selection(
         print("\nEvaluating candidate interactions...")
 
     # Generate candidates (strong heredity)
-    candidate_interactions = list(combinations(result.selected_main_effects, 2))
+    candidate_interactions = [
+        (a, b) for a, b in combinations(result.selected_main_effects, 2)
+        if interaction_supported(selected_configs[a], selected_configs[b])
+    ]
 
     result.interaction_losses = evaluate_candidate_interactions(
         baseline_model, selected_configs, candidate_interactions,

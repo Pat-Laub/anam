@@ -27,7 +27,7 @@ from torch import Tensor
 
 from anam import sparsity
 from anam.losses import resolve_distribution
-from anam.model import ANAMModule
+from anam.model import ANAMModule, interaction_supported
 from anam.optimizer import TrainingConfig, train_anam
 from anam.sparsity import SparsityConfig
 
@@ -717,7 +717,10 @@ class ANAM:
                 train_offset=train_offset,
                 val_offset=val_offset,
             )
-            candidates = list(combinations(selected_mains, 2))
+            candidates = [
+                (a, b) for a, b in combinations(selected_mains, 2)
+                if interaction_supported(selected_configs[a], selected_configs[b])
+            ]
             inter_losses = sparsity.evaluate_candidate_interactions(
                 baseline_model,
                 selected_configs,
