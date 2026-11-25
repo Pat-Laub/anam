@@ -250,6 +250,7 @@ class ANAM:
                 feature_configs[col] = {
                     "type": "categorical",
                     "num_categories": n_cat + 1,
+                    "unseen_code": n_cat,
                 }
             else:
                 scaler = StandardScaler()

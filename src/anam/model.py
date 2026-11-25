@@ -33,6 +33,8 @@ class ANAMModule(nn.Module):
             - 'type': 'continuous' or 'categorical'
             - 'bounds': (min, max) for continuous features
             - 'num_categories': int for categorical features
+            - 'unseen_code': optional code for unseen categories, whose main
+              effect and interactions are zero
             - 'monotonicity': 'increasing', 'decreasing', or None
         interactions: List of (feature1, feature2) tuples for interaction terms
         num_layers: Number of hidden layers for MLP subnets
@@ -193,6 +195,14 @@ class ANAMModule(nn.Module):
                 dropout=dropout,
             )
 
+    def _zero_unseen(self, out: Tensor, names: tuple[str, ...], x: dict) -> Tensor:
+        """Zero the rows of ``out`` where any named feature is an unseen category."""
+        for name in names:
+            code = self.feature_configs[name].get('unseen_code')
+            if code is not None:
+                out = out.masked_fill(x[name].reshape(-1, 1) == code, 0.0)
+        return out
+
     def _eval_main_subnet(self, name: str, feat: Tensor) -> Tensor:
         """Evaluate a single main-effect subnet, dispatching on its type.
 
@@ -204,7 +214,7 @@ class ANAMModule(nn.Module):
         if isinstance(subnet, MonotonicSubnet):
             return subnet({name: feat})
         if isinstance(subnet, EmbeddingSubnet):
-            return subnet(feat)
+            return self._zero_unseen(subnet(feat), (name,), {name: feat})
         if feat.dim() == 1:
             feat = feat.unsqueeze(-1)
         return subnet(feat)
@@ -218,14 +228,16 @@ class ANAMModule(nn.Module):
         """
         subnet = self.interaction_subnets[f"{var1}_{var2}"]
         if isinstance(subnet, MonotonicSubnet):
-            return subnet({var1: x[var1], var2: x[var2]})
+            out = subnet({var1: x[var1], var2: x[var2]})
+            return self._zero_unseen(out, (var1, var2), x)
         feat1 = x[var1]
         feat2 = x[var2]
         if feat1.dim() == 1:
             feat1 = feat1.unsqueeze(-1)
         if feat2.dim() == 1:
             feat2 = feat2.unsqueeze(-1)
-        return subnet(torch.cat([feat1, feat2], dim=-1))
+        out = subnet(torch.cat([feat1, feat2], dim=-1))
+        return self._zero_unseen(out, (var1, var2), x)
 
     def forward(
         self,
