@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from anam import ANAM, SparsityConfig
+from anam.optimizer import compute_smoothness_penalties
 
 
 def nam(**kwargs):
@@ -154,3 +155,23 @@ class TestMonotoneCategoricalInteraction:
         )
         pairs = {frozenset(p) for p in model._interaction_losses_}
         assert pairs == {frozenset("xz"), frozenset("zc")}
+
+
+class TestSmoothnessCentering:
+    @pytest.mark.parametrize("monotone", [None, {"x": "increasing"}])
+    def test_penalty_leaves_running_mean_alone(self, df, monotone):
+        model = nam(monotone=monotone).fit(
+            df[["x"]], df["y"], epochs=1, verbose=False
+        )
+        center = model.module_.main_subnets["x"].output_center
+        before = center.running_mean.clone()
+
+        model.module_.train()
+        penalty = compute_smoothness_penalties(
+            model.module_, ["x"], {"x": model.feature_configs_["x"]["bounds"]}, 1.0
+        )
+        penalty.backward()
+
+        assert torch.equal(center.running_mean, before)
+        assert center.training
+        assert any(p.grad is not None for p in model.module_.parameters())
