@@ -310,7 +310,6 @@ def train_anam(
             if early_stopping(val_loss, model):
                 if config.verbose:
                     print(f"Early stopping at epoch {epoch + 1}")
-                early_stopping.restore_best(model)
                 break
 
             if config.verbose and (epoch + 1) % 10 == 0:
@@ -318,6 +317,8 @@ def train_anam(
         else:
             if config.verbose and (epoch + 1) % 10 == 0:
                 print(f"Epoch {epoch + 1}: train_loss={avg_train_loss:.4f}")
+
+    early_stopping.restore_best(model)
 
     return history
 
